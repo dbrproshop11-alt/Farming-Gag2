@@ -4,7 +4,7 @@
 local CONFIG = {
     -- ===== Auto Buy =====
     AutoBuySeed   = true,
-    Seeds         = { "Moon Bloom", "Hypno Bloom", "Dragon's Breath", "Star Fruit", "Sun Bloom", "Acorn", "Bamboo", "Mango" },
+    Seeds         = { "Moon Bloom", "Hypno Bloom", "Dragon's Breath", "Star Fruit", "Sun Bloom" },
     SeedBuyAmount = 999,          -- beli sebanyak stok (dibatasi angka ini)
 
     AutoBuyGear   = true,
