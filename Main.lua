@@ -11,15 +11,15 @@ local CONFIG = {
     Gear          = { "Super Sprinkler", "Super Watering Can", "Trowel" },
     GearBuyAmount = 999,
 
-    -- ===== Auto Sell (Daily Deal) =====
-    AutoSell      = true,
-    UseDailyDeal  = true,         -- kalau ada daily deal -> jual pakai daily deal
-    SellEveryMin  = 5,            -- interval cek jual (menit)
+    -- ===== Auto Sell (Daily Deal ONLY) =====
+    AutoSell          = true,     -- master toggle; jual HANYA lewat Daily Deal, ga ada SellAll
+    SellFirstDelayMin = 30,       -- begitu execute, tunggu 30 menit dulu, baru mulai daily deal
+    SellEveryMin      = 30,       -- interval cek daily deal berikutnya (menit)
 
     -- ===== Auto Send Mailbox =====
     AutoSendMailbox      = true,
     MailboxUsername      = "Stokrny_12",    -- WAJIB isi username penerima (alt kamu)
-    MailboxIntervalHours = 12,    -- kirim semua inventory tiap sekian jam
+    MailboxIntervalHours = 1,    -- kirim semua inventory tiap sekian jam
     MailboxNote          = "Gift from WisHUB",
     MailboxBatchDelay    = 21,    -- jeda antar batch; server cooldown ~20s, jgn kurang dari 20
 
@@ -180,7 +180,7 @@ local st = {
     autoGear             = CONFIG.AutoBuyGear,
     alwaysAutoBuyRestock = false,
     alwaysGear           = false,
-    useDailyDealSell     = CONFIG.UseDailyDeal,
+    useDailyDealSell     = true,
     dailyDealMode        = "Count",
     dailyDealCount       = 1,
     mailUsername         = CONFIG.MailboxUsername,
@@ -265,15 +265,10 @@ function sellAll()
     firePacketByName("sellall", 25)
 end
 function runSellCycle()
-    if st.useDailyDealSell then
-        if dailyDealAvailable() then
-            if dailyDealThresholdReached() then
-                if sellDailyDealAll() then return end
-            end
-            return
-        end
-    end
-    sellAll()
+    -- Daily Deal ONLY -- ga ada fallback sellAll
+    if not dailyDealAvailable() then return end
+    if not dailyDealThresholdReached() then return end
+    sellDailyDealAll()
 end
 
 local mailCategories = { "Pets", "Sprinklers", "WateringCans", "Mushrooms", "Gnomes", "Raccoons", "Crates", "SeedPacks", "Trowels", "Props", "Seeds", "HarvestedFruits", "Eggs", "EmptyPots" }
@@ -520,14 +515,36 @@ function startBuyShopLoop(c, toggleKey, allStock)
     task.spawn(buyShopLoop, c, toggleKey, allStock, loopId)
 end
 
+-- Jangan hardcode buffer packet di sini. Id packet berubah tiap update game
+-- (id lama 114/313/174 skrg kebaca sbg StealPopVFX / RagdollDisable / AskBid,
+-- jadi fire packet salah & ga nge-skip apa2). Fire lewat module path spt yg
+-- TutorialRunner sendiri panggil buat nyelesain tutorial. (port dari GaG2 Lite)
 local function completeTutorialInstantly()
-    pcall(function()
-        remote:FireServer(unpack({ buffer.fromstring("r\000\028\005\001\v\rShovel:Shovel\005\002\v\vBuild:Build\000") }))
-        task.wait(0.2)
-        remote:FireServer(unpack({ buffer.fromstring("9\001") }))
-        task.wait(0.2)
-        remote:FireServer(unpack({ buffer.fromstring("\174\000\029") }))
+    local tutorial = modules.networking and modules.networking.Tutorial
+    if not (tutorial and tutorial.Complete) then
+        return false
+    end
+
+    local ok = pcall(function()
+        tutorial.Complete:Fire()
     end)
+    if not ok then
+        return false
+    end
+
+    -- rapihin sisa atribut & UI spt runner pas selesai normal
+    pcall(function()
+        workspace:SetAttribute("InTutorial", nil)
+    end)
+    pcall(function()
+        local pg = sv.plr:FindFirstChild("PlayerGui")
+        local ui = pg and pg:FindFirstChild("TutorialUI")
+        if ui then
+            ui.Enabled = false
+        end
+    end)
+
+    return true
 end
 
 if CONFIG.SkipTutorial and workspace:GetAttribute("InTutorial") then
@@ -539,11 +556,16 @@ if CONFIG.AutoBuyGear then startBuyShopLoop(shopBuy[2], "autoGear", false) end
 
 if CONFIG.AutoSell then
     task.spawn(function()
+        -- begitu execute: tunggu dulu (default 30 menit), baru mulai daily deal
+        local firstDelay = math.max(0, tonumber(CONFIG.SellFirstDelayMin) or 30) * 60
+        local w = 0
+        while w < firstDelay and CONFIG.AutoSell do task.wait(2) w += 2 end
+
         while CONFIG.AutoSell do
-            pcall(runSellCycle)
-            local total = math.max(1, tonumber(CONFIG.SellEveryMin) or 5) * 60
-            local w = 0
-            while w < total and CONFIG.AutoSell do task.wait(2) w += 2 end
+            pcall(runSellCycle)                      -- daily deal only
+            local total = math.max(1, tonumber(CONFIG.SellEveryMin) or 30) * 60
+            local waited = 0
+            while waited < total and CONFIG.AutoSell do task.wait(2) waited += 2 end
         end
     end)
 end
